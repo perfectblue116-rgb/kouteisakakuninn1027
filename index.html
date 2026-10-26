@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>3D敷地モデル ／ 高さ確認・降雨シミュレーション</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1420; --panel:#141c2c; --panel2:#1b2438; --line:#2a3550;
+    --text:#e8ecf5; --sub:#93a1c0; --accent:#5fb0ff; --up:#ff6b57; --down:#4fc3f7; --zero:#ffd166;
+    --topbar-from:rgba(10,14,22,.92); --topbar-to:rgba(10,14,22,0); --tip-bg:rgba(10,14,22,.95);
+    --label-bg:rgba(10,14,22,.82); --shadow:rgba(0,0,0,.35); --hover:rgba(255,255,255,.04); --on-accent:#08101f;
+  }
+  :root[data-theme="light"]{
+    --bg:#f1f4f9; --panel:#ffffff; --panel2:#eaeff7; --line:#ccd5e5;
+    --text:#1b2438; --sub:#5a6885; --accent:#1f78d1; --up:#d6402b; --down:#0a7fb8; --zero:#b07800;
+    --topbar-from:rgba(241,244,249,.95); --topbar-to:rgba(241,244,249,0); --tip-bg:rgba(255,255,255,.96);
+    --label-bg:rgba(255,255,255,.92); --shadow:rgba(30,45,80,.18); --hover:rgba(0,0,0,.05); --on-accent:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  html,body{touch-action:pan-x pan-y;overscroll-behavior:none;-webkit-text-size-adjust:100%;-webkit-touch-callout:none;}
+  #sidePanels{touch-action:pan-y;-webkit-overflow-scrolling:touch;}
+  #app canvas{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;overflow:hidden;}
+  #app{position:relative;width:100vw;height:100vh;}
+  canvas{display:block;}
+
+  #topbar{position:absolute;top:0;left:0;right:0;padding:calc(14px + env(safe-area-inset-top,0px)) 18px 10px;
+    background:linear-gradient(180deg,var(--topbar-from),var(--topbar-to));
+    display:flex;align-items:flex-start;justify-content:space-between;gap:12px;pointer-events:none;z-index:6;flex-wrap:wrap;}
+  #topbar .left{pointer-events:auto;}
+  #topbar h1{font-size:16px;margin:0;font-weight:600;}
+  #topbar .sub{font-size:11.5px;color:var(--sub);margin-top:2px;}
+  #layerSwitch{display:flex;gap:8px;margin-top:10px;}
+  #layerSwitch button{padding:7px 12px;}
+
+  #legend{pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:10px 14px;font-size:11.5px;color:var(--sub);display:flex;gap:14px;align-items:center;flex-wrap:wrap;max-width:340px;}
+  .lg-item{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+  .sw{width:10px;height:10px;border-radius:50%;display:inline-block;}
+
+  #sidePanels{position:absolute;right:14px;top:calc(140px + env(safe-area-inset-top,0px));width:270px;max-height:74vh;
+    display:flex;flex-direction:column;gap:12px;overflow:auto;z-index:5;}
+  #levelPanel,#rainPanel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;
+    box-shadow:0 10px 30px var(--shadow);}
+  #levelPanel h2,#rainPanel h2{font-size:12.5px;margin:0 0 8px;color:var(--sub);font-weight:600;letter-spacing:.03em;}
+  .ctrl{margin-bottom:12px;}
+  .ctrl label{font-size:11.5px;color:var(--text);display:flex;justify-content:space-between;margin-bottom:4px;}
+  .ctrl label span.val{color:var(--accent);font-family:ui-monospace,Consolas,monospace;}
+  .ctrl input[type=range]{width:100%;accent-color:var(--accent);}
+  .ctrl .btnrow,.btnrow{display:flex;gap:8px;margin-top:8px;}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;
+    padding:7px 10px;font-size:11.5px;cursor:pointer;}
+  button:hover{border-color:var(--accent);}
+  button.active{background:var(--accent);color:var(--on-accent);border-color:var(--accent);}
+
+  table{width:100%;border-collapse:collapse;font-size:11px;}
+  th,td{padding:4px 3px;text-align:right;border-bottom:1px solid var(--line);}
+  th:first-child,td:first-child{text-align:left;}
+  th{color:var(--sub);font-weight:600;position:sticky;top:0;background:var(--panel);}
+  .diffpos{color:var(--up);} .diffneg{color:var(--down);} .diffzero{color:var(--zero);}
+  tbody tr{cursor:pointer;transition:background .15s;}
+  tbody tr:hover td{background:var(--hover);}
+  tbody tr.selected td{background:rgba(95,176,255,.18);color:var(--accent);}
+
+  textarea{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;
+    padding:6px 8px;font-size:9.5px;font-family:ui-monospace,Consolas,monospace;resize:vertical;line-height:1.4;}
+  .hint-sm{font-size:10px;color:var(--sub);line-height:1.5;margin:6px 0 0;}
+
+  #rainLegend{margin-bottom:12px;}
+  #rainLegend .bar{height:10px;border-radius:5px;background:linear-gradient(to right,#2f6fb0,#6fae63,#8a6a3f);}
+  #rainLegend .lbls{display:flex;justify-content:space-between;font-size:10.5px;color:var(--sub);margin-top:3px;}
+  .wetbar{width:34px;height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle;}
+  .wetfill{height:100%;background:#4fc3f7;width:0%;transition:width .15s linear;}
+
+  #tooltip{position:absolute;pointer-events:none;background:var(--tip-bg);border:1px solid var(--line);
+    border-radius:8px;padding:6px 9px;font-size:11.5px;display:none;z-index:8;white-space:nowrap;
+    box-shadow:0 6px 18px var(--shadow);}
+  #tooltip b{color:var(--accent);}
+
+  #hint{position:absolute;left:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));font-size:11px;color:var(--sub);
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;z-index:5;}
+
+  #errbox{position:absolute;left:14px;right:14px;top:calc(14px + env(safe-area-inset-top,0px));
+    background:#3a1420;border:1px solid #a33a52;color:#ffd9e0;border-radius:10px;padding:10px 14px;
+    font-size:12px;z-index:20;display:none;white-space:pre-wrap;}
+
+  @media (max-width:760px){
+    #sidePanels{left:14px;right:14px;width:auto;top:auto;bottom:calc(64px + env(safe-area-inset-bottom,0px));max-height:40vh;}
+    #topbar h1{font-size:14px;}
+    #legend{font-size:10.5px;padding:8px 10px;gap:8px;}
+    #hint{display:none;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div class="left">
+      <h1>3D敷地モデル</h1>
+      <div class="sub" id="subtext">敷地高さと降雨シミュレーションは同じデータを使用しています／重ねて表示できます</div>
+      <div id="layerSwitch">
+        <button id="btnShowLevel" class="active">敷地高さを表示</button>
+        <button id="btnShowRain">降雨シミュレーションを表示</button>
+        <button id="btnTheme">背景を白にする</button>
+      </div>
+    </div>
+    <div id="legend">
+      <div class="lg-item"><span class="sw" style="background:#ff6b57"></span>基準より高い(+)</div>
+      <div class="lg-item"><span class="sw" style="background:#ffd166"></span>基準(126.30)</div>
+      <div class="lg-item"><span class="sw" style="background:#4fc3f7"></span>基準より低い(−)</div>
+      <div class="lg-item"><span class="sw" style="background:#7fe0a5;border-radius:2px"></span>建物(参考)</div>
+    </div>
+  </div>
+
+  <div id="sidePanels">
+    <div id="levelPanel">
+      <h2>共通設定</h2>
+      <div class="ctrl">
+        <label>高さ強調倍率（敷地高さ・地形 共通） <span class="val" id="levelExagVal">20x</span></label>
+        <input id="levelExag" type="range" min="1" max="60" value="20">
+      </div>
+      <div class="ctrl btnrow">
+        <button id="levelBtnLabels" class="active">数値ラベル表示</button>
+        <button id="levelBtnReset">視点リセット</button>
+      </div>
+      <h2 style="margin-top:14px;">計画レベル 一覧（GL: m ／ 差: mm）</h2>
+      <div style="font-size:10.5px;color:var(--sub);margin:-4px 0 8px;">計画GLの数値は直接編集可能です（両方の表示に即反映）</div>
+      <table>
+        <thead><tr><th>地点</th><th>計画GL(m)</th><th>差(mm)</th><th>滞留</th></tr></thead>
+        <tbody id="levelTbody"></tbody>
+      </table>
+    </div>
+
+    <div id="rainPanel" style="display:none;">
+      <h2>降雨シミュレーション設定</h2>
+      <div id="rainLegend">
+        <div style="font-size:10.5px;color:var(--sub);margin-bottom:4px;">地形の色 = 計画レベル(標高)</div>
+        <div class="bar"></div>
+        <div class="lbls"><span id="legendMin">低い —</span><span id="legendMax">高い —</span></div>
+        <div style="font-size:10.5px;color:var(--sub);margin-top:8px;">水色のリング＝各ポイント直下の雨水の滞留量（テーブルの「滞留」欄も同じ）</div>
+      </div>
+      <div class="ctrl">
+        <label>降水強度 <span class="val" id="rainRateVal">30</span> mm/h　<span id="rainRateCat" style="color:var(--sub);font-weight:600;"></span></label>
+        <input type="range" id="rainRate" min="0" max="300" step="5" value="30">
+      </div>
+      <div class="ctrl">
+        <label>地形の透過率 <span class="val" id="rainOpacityVal">85%</span></label>
+        <input type="range" id="rainOpacity" min="10" max="100" step="5" value="85">
+      </div>
+      <button id="rainBtnReset" style="width:100%">シミュレーションをリセット</button>
+      <h2 style="margin-top:14px;">別データ(別PDF)を読み込む</h2>
+      <textarea id="importArea" rows="6" placeholder='{"points":[{"x":-10.0,"z":-5.0,"level":126.40,"label":"北西角"}],"building":{"x0":0.87,"x1":28.26,"z0":-0.86,"z1":8.45}}'></textarea>
+      <div class="btnrow">
+        <button id="btnImport">インポート</button>
+        <button id="btnExportCopy">現在のデータをコピー</button>
+      </div>
+      <div class="hint-sm">配置図PDFで、境界ポイントのレベル数値を青、基準計画レベル±0の数値を赤、建物ラインを緑で色分けしておくと、抽出精度が大きく上がります（画像ではなく元のPDFファイルをそのまま渡してください。埋め込みテキストの座標と塗り色を直接プログラムで読み取れるため、目視での桁の見間違いや存在しない点の混入を防げます）。<br>色分けしたPDFをこのチャットに送り、次のように依頼してください：<br>「添付したHTMLに添付PDFの内容をインポートする為のJSONデータを作成下さい。<br>赤文字の126.30を±0とした場合の各計画レベルの高低差を表示。青文字は敷地ポイント計画レベル、緑文字が建物計画レベルです。赤文字126.30を±0とした時、127.06は+760となります。」<br>返ってきたJSONを貼り付けて「インポート」を押してください。</div>
+    </div>
+  </div>
+
+  <div id="hint">ドラッグ：回転／ホイール：ズーム／右ドラッグ：平行移動</div>
+  <div id="tooltip"></div>
+  <div id="errbox"></div>
+</div>
+<script>
+window.addEventListener('error', (e)=>{
+  const box = document.getElementById('errbox');
+  box.style.display = 'block';
+  box.textContent = '読み込みエラーが発生しました。ネットワーク接続または広告ブロッカーをご確認ください。\n' + (e.message||e);
+});
+if (typeof THREE === 'undefined') {
+  const box = document.getElementById('errbox');
+  box.style.display = 'block';
+  box.textContent = 'three.js の読み込みに失敗しました。インターネット接続、または cdnjs.cloudflare.com への通信がブロックされていないかご確認ください。';
+  throw new Error('THREE not loaded');
+}
+
+const app = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+app.appendChild(renderer.domElement);
+
+/* 背景テーマ（黒／白）。選択は localStorage に保存 */
+const THEMES = {
+  dark:{bg:0x0e1420, grid1:0x33507a, grid2:0x1c2740, ground:0x101828, groundOp:0.5, bline:0x5fb0ff, blineOp:0.55,
+        dot:0x9db4dd, dotOp:0.5, wire:0xffffff, wireOp:0.08, sel:0xffffff, bld:0x7fe0a5,
+        lblUp:'#ff9c8a', lblDown:'#8fdcff', lblZero:'#ffe08a', lblSub:'#93a1c0'},
+  light:{bg:0xf1f4f9, grid1:0x9fb0cc, grid2:0xd5dcea, ground:0xe3e8f1, groundOp:0.6, bline:0x1f6fc4, blineOp:0.85,
+        dot:0x5a6885, dotOp:0.45, wire:0x000000, wireOp:0.12, sel:0x1b2438, bld:0x2e9e63,
+        lblUp:'#d6402b', lblDown:'#0a7fb8', lblZero:'#b07800', lblSub:'#5a6885'}
+};
+let THEME = 'dark';
+try{ const t = localStorage.getItem('site3d-theme'); if(t==='light'||t==='dark') THEME = t; }catch(e){}
+const TC = ()=>THEMES[THEME];
+document.documentElement.setAttribute('data-theme', THEME);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(TC().bg);
+scene.fog = new THREE.Fog(TC().bg, 80, 220);
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 1000);
+scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+const dl = new THREE.DirectionalLight(0xffffff, 0.9); dl.position.set(20,40,10); scene.add(dl);
+const dl2 = new THREE.DirectionalLight(0x88aaff, 0.3); dl2.position.set(-20,20,-15); scene.add(dl2);
+
+/* =========================================================================
+   SHARED SITE DATA — 敷地高さ確認・降雨シミュレーション共通
+   ========================================================================= */
+const REF = 126.30;
+let POINTS = [
+  {x:-20.08, z:-7.32, level:126.4, label:"西側境界(北)", role:"boundary"},
+  {x:-20.43, z:-8.38, level:127.06, label:"西側境界", role:"boundary"},
+  {x:-20.38, z:-12.29, level:127.06, label:"北西角", role:"boundary"},
+  {x:-15.99, z:-12.3, level:126.4, label:"北側境界(市道沿い)", role:"boundary"},
+  {x:-13.33, z:-13.03, level:126.35, label:"北側境界(水路際)", role:"boundary"},
+  {x:-10.34, z:-11.85, level:126.3, label:"北側境界(姿川支川沿い)", role:"boundary"},
+  {x:-7.17, z:-9.37, level:126.2, label:"北側境界", role:"boundary"},
+  {x:1.0, z:-5.29, level:126.2, label:"北側境界(水路際)", role:"boundary"},
+  {x:6.26, z:-4.69, level:126.18, label:"北東側境界", role:"boundary"},
+  {x:11.35, z:-6.35, level:126.11, label:"北東側境界", role:"boundary"},
+  {x:15.49, z:-6.21, level:126.11, label:"北東端境界", role:"boundary"},
+  {x:32.69, z:-1.43, level:126.05, label:"最東端北側境界", role:"boundary"},
+  {x:32.48, z:3.82, level:125.5, label:"東側境界", role:"boundary"},
+  {x:32.36, z:9.07, level:126.05, label:"東側境界", role:"boundary"},
+  {x:32.27, z:10.6, level:126.08, label:"東端境界", role:"boundary"},
+  {x:20.8, z:12.07, level:126.12, label:"南側境界", role:"boundary"},
+  {x:15.36, z:12.37, level:126.14, label:"南側水路境界", role:"boundary"},
+  {x:4.86, z:11.16, level:126.18, label:"南側地先境界", role:"boundary"},
+  {x:2.14, z:10.92, level:126.33, label:"南側境界", role:"boundary"},
+  {x:-1.05, z:7.9, level:126.25, label:"南側境界(頂部)", role:"boundary"},
+  {x:-6.83, z:7.09, level:126.22, label:"南西境界点", role:"boundary"},
+  {x:-9.5, z:8.56, level:126.22, label:"南側境界", role:"boundary"},
+  {x:-14.34, z:7.26, level:126.22, label:"西側境界折れ点", role:"boundary"},
+  {x:-16.73, z:5.79, level:126.26, label:"西側道路境界", role:"boundary"},
+  {x:-20.18, z:2.89, level:126.4, label:"西側道路境界(南)", role:"boundary"},
+  {x:-15.04, z:-7.62, level:126.4, label:"敷地内通路際計画高", role:"other"},
+  {x:-4.43, z:-6.6, level:126.1, label:"北側斜線検討点", role:"other"},
+  {x:0.67, z:-2.72, level:126.3, label:"建物北西周り計画高", role:"other"},
+  {x:28.96, z:-1.16, level:126.3, label:"建物北東角(緑ライン)", role:"building"},
+  {x:3.87, z:-1.09, level:126.3, label:"建物北西角(緑ライン)", role:"building"},
+  {x:2.25, z:9.2, level:126.3, label:"建物南西角(緑ライン)", role:"building"},
+  {x:29.59, z:9.26, level:126.3, label:"建物南東角(緑ライン)", role:"building"},
+  {x:0.0, z:0.0, level:126.3, label:"設計基準GL(±0=126.30)", role:"reference"},
+];
+let BLD = {x0:2.25, x1:29.59, z0:-1.16, z1:9.26};
+let boundaryIdx = [];
+
+function recomputeDiffs(){ POINTS.forEach(p=>p.diff = Math.round((p.level-REF)*100)/100); }
+recomputeDiffs();
+
+/* -------------------------------------------------------------------------
+   敷地境界ラインの自動再構築
+   配置図から抽出した各ポイントは「敷地境界上の点」と「建物角・設備・基準点
+   などの内部参照点」が混在しているため、まずラベルから内部参照点を除外し、
+   残った境界候補点を敷地重心まわりの角度順（星形多角形として）に並べる。
+   この方法は今回のような凹凸のある敷地形状でも、別のPDFをインポートした
+   際の未知の点群に対しても、追加の手作業なしで妥当な境界順序を復元できる。
+   ------------------------------------------------------------------------- */
+// 建物角・設備・基準点など「敷地境界そのものではない」ことが明確なラベルの
+// キーワード。role が指定されていない点に対するフォールバック判定に使う。
+const NON_BOUNDARY_KEYWORDS = ['建物','敷地内','基準点','検討','ポール','マンホール','消火','自販機','ゴミ','ごみ','ボンベ','物置','樋','外灯','駐輪','駐車'];
+// 各点の役割は、抽出時に付与された明示的な role フィールド（"boundary" /
+// "reference" / "building" / "other"）を最優先で使う。配置図上で境界数値=青、
+// 基準±0=赤、建物ライン=緑、のように色分けして抽出すれば role が確実に入る
+// ため、ラベルの言い回しに依存せず別のPDFでも安定して判定できる。
+// role が無い（古い形式の）データは、従来どおりラベルのキーワードで判定する。
+function isBoundaryPoint(p){
+  if(p.role === 'boundary') return true;
+  if(p.role === 'reference' || p.role === 'building' || p.role === 'other') return false;
+  return !NON_BOUNDARY_KEYWORDS.some(k=>p.label && p.label.includes(k));
+}
+// 凸包（フォールバック用）
+function convexHullIdx(points){
+  const pts = points.map((p,i)=>({x:p.x,y:p.z,i})).sort((a,b)=>a.x-b.x||a.y-b.y);
+  if(pts.length<3) return pts.map(p=>p.i);
+  const cross=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
+  const lower=[];
+  for(const p of pts){ while(lower.length>=2 && cross(lower[lower.length-2],lower[lower.length-1],p)<=0) lower.pop(); lower.push(p); }
+  const upper=[];
+  for(let i=pts.length-1;i>=0;i--){ const p=pts[i]; while(upper.length>=2 && cross(upper[upper.length-2],upper[upper.length-1],p)<=0) upper.pop(); upper.push(p); }
+  upper.pop(); lower.pop();
+  const hull = lower.concat(upper);
+  return hull.map(p=>p.i).concat([hull[0].i]);
+}
+// 境界候補点を重心まわりの角度でソートし、元データとの整合性が取れた
+// 敷地境界の頂点順（閉じたループ）を返す。
+function computeBoundaryIdx(points){
+  const candIdx = points.map((p,i)=>i).filter(i=>isBoundaryPoint(points[i]));
+  const src = candIdx.length>=3 ? candIdx : points.map((p,i)=>i);
+  const cx = src.reduce((s,i)=>s+points[i].x,0)/src.length;
+  const cz = src.reduce((s,i)=>s+points[i].z,0)/src.length;
+  const ordered = src.slice().sort((a,b)=>{
+    const angA = Math.atan2(points[a].z-cz, points[a].x-cx);
+    const angB = Math.atan2(points[b].z-cz, points[b].x-cx);
+    return angA - angB;
+  });
+  if(ordered.length<3) return convexHullIdx(points);
+  return ordered.concat([ordered[0]]);
+}
+boundaryIdx = computeBoundaryIdx(POINTS);
+
+let minX,maxX,minZ,maxZ;
+function computeBounds(){
+  const PAD = 4;
+  minX = Math.min(...POINTS.map(p=>p.x)) - PAD;
+  maxX = Math.max(...POINTS.map(p=>p.x)) + PAD;
+  minZ = Math.min(...POINTS.map(p=>p.z)) - PAD;
+  maxZ = Math.max(...POINTS.map(p=>p.z)) + PAD;
+}
+computeBounds();
+
+let EXAG = 20; // shared vertical exaggeration (both layers)
+
+/* =========================================================================
+   GROUND / BOUNDARY / BUILDING (shared reference geometry)
+   ========================================================================= */
+function makeGrid(){ const g = new THREE.GridHelper(140, 56, TC().grid1, TC().grid2); g.position.y = 0; return g; }
+let grid = makeGrid();
+scene.add(grid);
+const groundMat = new THREE.MeshBasicMaterial({color:TC().ground, transparent:true, opacity:TC().groundOp, side:THREE.DoubleSide, depthWrite:false});
+const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(140,140), groundMat);
+groundMesh.rotation.x = -Math.PI/2;
+groundMesh.position.y = -0.02;
+groundMesh.renderOrder = 0;
+scene.add(groundMesh);
+
+let bLine = null;
+function rebuildBoundary(){
+  if(bLine){ scene.remove(bLine); bLine.geometry.dispose(); bLine.material.dispose(); }
+  const bPts = boundaryIdx.map(i=>new THREE.Vector3(POINTS[i].x, 0.02, POINTS[i].z));
+  const bGeo = new THREE.BufferGeometry().setFromPoints(bPts);
+  bLine = new THREE.Line(bGeo, new THREE.LineBasicMaterial({color:TC().bline, transparent:true, opacity:TC().blineOp}));
+  scene.add(bLine);
+}
+
+let bldMesh=null, bldEdges=null;
+function rebuildBuilding(){
+  if(bldMesh){ scene.remove(bldMesh); bldMesh.geometry.dispose(); bldMesh.material.dispose(); }
+  if(bldEdges){ scene.remove(bldEdges); bldEdges.geometry.dispose(); bldEdges.material.dispose(); }
+  const w = Math.max(BLD.x1-BLD.x0, 0.1), d = Math.max(BLD.z1-BLD.z0, 0.1);
+  const bldGeo = new THREE.BoxGeometry(w, 0.06, d);
+  const bldMat = new THREE.MeshLambertMaterial({color:TC().bld, transparent:true, opacity:0.35});
+  bldMesh = new THREE.Mesh(bldGeo, bldMat);
+  bldMesh.position.set((BLD.x0+BLD.x1)/2, 0.03, (BLD.z0+BLD.z1)/2);
+  scene.add(bldMesh);
+  bldEdges = new THREE.LineSegments(new THREE.EdgesGeometry(bldGeo), new THREE.LineBasicMaterial({color:TC().bld}));
+  bldEdges.position.copy(bldMesh.position);
+  scene.add(bldEdges);
+}
+
+/* =========================================================================
+   LEVEL LAYER — 敷地高さ確認（点・スタンド・ラベル・テーブル）
+   ========================================================================= */
+function colorFor(diff){
+  if (Math.abs(diff) < 0.005) return 0xffd166;
+  if (diff > 0){
+    const t = Math.min(diff/0.8, 1);
+    return new THREE.Color().setHSL(0.02, 0.85, 0.55 - 0.15*t).getHex();
+  } else {
+    const t = Math.min(-diff/0.8, 1);
+    return new THREE.Color().setHSL(0.55, 0.75, 0.55 - 0.1*t).getHex();
+  }
+}
+
+let selectedIdx = null;
+const selectionRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.55, 0.85, 40),
+  new THREE.MeshBasicMaterial({color:TC().sel, transparent:true, opacity:0.9, side:THREE.DoubleSide, depthWrite:false})
+);
+selectionRing.rotation.x = -Math.PI/2; selectionRing.visible = false; scene.add(selectionRing);
+const glowSphere = new THREE.Mesh(
+  new THREE.SphereGeometry(0.6, 20, 20),
+  new THREE.MeshBasicMaterial({color:TC().sel, transparent:true, opacity:0.5, depthWrite:false})
+);
+glowSphere.visible = false; scene.add(glowSphere);
+
+let markerGroup=null, stems=[], spheres=[], baseDots=[], labelEls=[];
+let puddleGroup=null, puddleRings=[], pointWet=new Float32Array(0);
+const WET_SAT = 4; // wetness value at which the ring/bar reaches 100%
+const labelLayer = document.createElement('div');
+labelLayer.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:4;';
+app.appendChild(labelLayer);
+
+function layoutMarkers(){
+  POINTS.forEach((p,i)=>{
+    const y = p.diff * (EXAG/10);
+    const stem = stems[i];
+    const len = Math.max(Math.abs(y), 0.02);
+    stem.scale.set(1, len, 1);
+    stem.position.set(p.x, y/2, p.z);
+    spheres[i].position.set(p.x, y, p.z);
+  });
+}
+
+function rebuildMarkers(){
+  if(markerGroup) scene.remove(markerGroup);
+  if(puddleGroup) scene.remove(puddleGroup);
+  stems=[]; spheres=[]; baseDots=[]; puddleRings=[];
+  labelEls.forEach(l=>l.el.remove());
+  labelEls=[];
+  pointWet = new Float32Array(POINTS.length);
+
+  markerGroup = new THREE.Group();
+  markerGroup.renderOrder = 3;
+  scene.add(markerGroup);
+  puddleGroup = new THREE.Group();
+  puddleGroup.renderOrder = 2;
+  scene.add(puddleGroup);
+  POINTS.forEach((p)=>{
+    const color = colorFor(p.diff);
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), new THREE.MeshBasicMaterial({color:TC().dot, transparent:true, opacity:TC().dotOp, depthWrite:false}));
+    dot.rotation.x = -Math.PI/2; dot.position.set(p.x, 0.015, p.z);
+    markerGroup.add(dot); baseDots.push(dot);
+
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,1,8), new THREE.MeshLambertMaterial({color}));
+    markerGroup.add(stem); stems.push(stem);
+
+    const sph = new THREE.Mesh(new THREE.SphereGeometry(0.42,16,16), new THREE.MeshLambertMaterial({color, emissive:color, emissiveIntensity:0.25}));
+    markerGroup.add(sph); spheres.push(sph);
+
+    const ring = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshBasicMaterial({color:0x4fc3f7, transparent:true, opacity:0, depthWrite:false}));
+    ring.rotation.x = -Math.PI/2; ring.position.set(p.x, 0.022, p.z); ring.scale.setScalar(0.01);
+    puddleGroup.add(ring); puddleRings.push(ring);
+
+    const el = document.createElement('div');
+    el.style.cssText = `position:absolute;transform:translate(-50%,-130%);font-size:11px;background:var(--label-bg);
+      border:1px solid var(--line);border-radius:6px;padding:2px 6px;white-space:nowrap;color:var(--text);display:none;`;
+    labelLayer.appendChild(el);
+    labelEls.push({el, p});
+  });
+  layoutMarkers();
+  refreshAllLabels();
+}
+
+function refreshAllLabels(){
+  labelEls.forEach(({el,p})=>{
+    const sign = p.diff>0?'+':'';
+    const T = TC();
+    const c = p.diff>0.005?T.lblUp:(p.diff<-0.005?T.lblDown:T.lblZero);
+    el.innerHTML = `<b style="color:${c}">${p.level.toFixed(2)}</b> <span style="color:${T.lblSub}">(${sign}${Math.round(p.diff*1000)})</span>`;
+  });
+}
+
+const tbody = document.getElementById('levelTbody');
+let rowRefs = [];
+function buildTable(){
+  tbody.innerHTML = ''; rowRefs = [];
+  POINTS.map((p,i)=>({p,i})).sort((a,b)=>b.p.level-a.p.level).forEach(({p,i})=>{
+    const tr = document.createElement('tr');
+    const labelTd = document.createElement('td'); labelTd.textContent = p.label;
+    const glTd = document.createElement('td');
+    const input = document.createElement('input');
+    input.type = 'number'; input.step = '0.01'; input.value = p.level.toFixed(2);
+    input.style.cssText = 'width:64px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:5px;padding:2px 4px;text-align:right;font-size:11px;';
+    input.addEventListener('input', ()=>{
+      const v = parseFloat(input.value);
+      if(!isNaN(v)){ POINTS[i].level = v; onPointEdited(i); }
+    });
+    glTd.appendChild(input);
+    const diffTd = document.createElement('td');
+    const sign = p.diff>0?'+':'';
+    diffTd.textContent = sign+Math.round(p.diff*1000);
+    diffTd.className = p.diff>0.005?'diffpos':(p.diff<-0.005?'diffneg':'diffzero');
+    const wetTd = document.createElement('td');
+    wetTd.innerHTML = '<div class="wetbar"><div class="wetfill"></div></div>';
+    const wetFill = wetTd.querySelector('.wetfill');
+    tr.appendChild(labelTd); tr.appendChild(glTd); tr.appendChild(diffTd); tr.appendChild(wetTd);
+    tr.addEventListener('click', (e)=>{ if(e.target===input) return; selectPoint(i); });
+    tbody.appendChild(tr);
+    rowRefs.push({idx:i, diffTd, input, tr, wetFill});
+  });
+}
+
+function onPointEdited(idx){
+  const p = POINTS[idx];
+  p.diff = Math.round((p.level-REF)*100)/100;
+  const color = colorFor(p.diff);
+  stems[idx].material.color.setHex(color);
+  spheres[idx].material.color.setHex(color);
+  spheres[idx].material.emissive.setHex(color);
+  layoutMarkers();
+  refreshAllLabels();
+  const ref = rowRefs.find(r=>r.idx===idx);
+  if(ref){
+    const sign = p.diff>0?'+':'';
+    const cls = p.diff>0.005?'diffpos':(p.diff<-0.005?'diffneg':'diffzero');
+    ref.diffTd.textContent = sign+Math.round(p.diff*1000);
+    ref.diffTd.className = cls;
+  }
+  buildTerrain(); // keep rain layer in sync with the same data
+}
+
+function selectPoint(idx){
+  selectedIdx = (selectedIdx === idx) ? null : idx;
+  rowRefs.forEach(r=>{
+    const on = r.idx === selectedIdx;
+    r.tr.classList.toggle('selected', on);
+    if(on) r.tr.scrollIntoView({block:'nearest'});
+  });
+}
+
+/* =========================================================================
+   RAIN LAYER — 降雨シミュレーション（地形メッシュ・雨粒）
+   ========================================================================= */
+const NX=64, NZ=44;
+let heights=null, terrainGeo=null, terrainMesh=null, wireMesh=null;
+let rainOpacity = 0.85;
+
+function idw(x,z){
+  let num=0,den=0;
+  for(const p of POINTS){
+    const d2=(x-p.x)**2+(z-p.z)**2;
+    if(d2<1e-6) return p.level;
+    const w=1/Math.pow(d2,1.1);
+    num+=w*p.level; den+=w;
+  }
+  return num/den;
+}
+function computeElevation(x,z){
+  const base = idw(x,z);
+  if(!BLD) return base;
+  const dx=Math.max(BLD.x0-x,0,x-BLD.x1), dz=Math.max(BLD.z0-z,0,z-BLD.z1);
+  const d=Math.sqrt(dx*dx+dz*dz), edge=1.2;
+  let t=1-Math.min(d/edge,1); t=t*t*(3-2*t);
+  return base*(1-t)+REF*t;
+}
+function colorForElevation(e, minE, maxE){
+  const t = Math.min(Math.max((e-minE)/((maxE-minE)||1),0),1);
+  const c1=new THREE.Color(0x2f6fb0), c2=new THREE.Color(0x6fae63), c3=new THREE.Color(0x8a6a3f);
+  return t<0.5 ? c1.clone().lerp(c2, t/0.5) : c2.clone().lerp(c3, (t-0.5)/0.5);
+}
+function disposeObj(o){ if(!o) return; scene.remove(o); if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); }
+
+let rainTopY = 40;
+function buildTerrain(){
+  disposeObj(terrainMesh); disposeObj(wireMesh);
+  heights = new Float32Array(NX*NZ);
+  const positions = new Float32Array(NX*NZ*3);
+  const colors = new Float32Array(NX*NZ*3);
+  let minE=Infinity, maxE=-Infinity;
+  for(let j=0;j<NZ;j++) for(let i=0;i<NX;i++){
+    const x = minX + (i/(NX-1))*(maxX-minX), z = minZ + (j/(NZ-1))*(maxZ-minZ);
+    const e = computeElevation(x,z);
+    heights[j*NX+i]=e; minE=Math.min(minE,e); maxE=Math.max(maxE,e);
+  }
+  for(let j=0;j<NZ;j++) for(let i=0;i<NX;i++){
+    const idx=j*NX+i, x = minX + (i/(NX-1))*(maxX-minX), z = minZ + (j/(NZ-1))*(maxZ-minZ);
+    const e=heights[idx], y=(e-REF)*(EXAG/10);
+    positions[idx*3]=x; positions[idx*3+1]=y; positions[idx*3+2]=z;
+    const c=colorForElevation(e,minE,maxE);
+    colors[idx*3]=c.r; colors[idx*3+1]=c.g; colors[idx*3+2]=c.b;
+  }
+  const indices=[];
+  for(let j=0;j<NZ-1;j++) for(let i=0;i<NX-1;i++){
+    const a=j*NX+i,b=j*NX+i+1,c=(j+1)*NX+i,d=(j+1)*NX+i+1;
+    indices.push(a,c,b, b,c,d);
+  }
+  terrainGeo = new THREE.BufferGeometry();
+  terrainGeo.setAttribute('position', new THREE.BufferAttribute(positions,3));
+  terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors,3));
+  terrainGeo.setIndex(indices);
+  terrainGeo.computeVertexNormals();
+  terrainMesh = new THREE.Mesh(terrainGeo, new THREE.MeshLambertMaterial({vertexColors:true, side:THREE.DoubleSide, transparent:true, opacity:rainOpacity, depthWrite:false}));
+  terrainMesh.renderOrder = 1;
+  terrainMesh.visible = showRain;
+  scene.add(terrainMesh);
+  wireMesh = new THREE.LineSegments(new THREE.WireframeGeometry(terrainGeo), new THREE.LineBasicMaterial({color:TC().wire, transparent:true, opacity:TC().wireOp, depthWrite:false}));
+  wireMesh.renderOrder = 2;
+  wireMesh.visible = showRain;
+  scene.add(wireMesh);
+
+  rainTopY = Math.max(20, (maxE-REF)*(EXAG/10) + 15);
+  document.getElementById('legendMin').textContent = '低い ' + minE.toFixed(2) + 'm';
+  document.getElementById('legendMax').textContent = '高い ' + maxE.toFixed(2) + 'm';
+}
+
+function rescaleTerrain(){
+  if(!terrainGeo) return;
+  const pos = terrainGeo.attributes.position;
+  for(let j=0;j<NZ;j++) for(let i=0;i<NX;i++){
+    const idx=j*NX+i; pos.setY(idx, (heights[idx]-REF)*(EXAG/10));
+  }
+  pos.needsUpdate=true; terrainGeo.computeVertexNormals();
+  wireMesh.geometry.dispose(); wireMesh.geometry = new THREE.WireframeGeometry(terrainGeo);
+}
+
+function sampleY(x,z){
+  const u=Math.min(Math.max((x-minX)/(maxX-minX),0),1), v=Math.min(Math.max((z-minZ)/(maxZ-minZ),0),1);
+  const fi=u*(NX-1), fj=v*(NZ-1);
+  const i0=Math.floor(fi), j0=Math.floor(fj), i1=Math.min(i0+1,NX-1), j1=Math.min(j0+1,NZ-1);
+  const tx=fi-i0, tz=fj-j0;
+  const h00=heights[j0*NX+i0], h10=heights[j0*NX+i1], h01=heights[j1*NX+i0], h11=heights[j1*NX+i1];
+  const h0=h00*(1-tx)+h10*tx, h1=h01*(1-tx)+h11*tx;
+  return ((h0*(1-tz)+h1*tz)-REF)*(EXAG/10);
+}
+
+const MAX_P = 6000;
+const pPos = new Float32Array(MAX_P*3);
+const pVy = new Float32Array(MAX_P);
+const pState = new Uint8Array(MAX_P);
+const pSettle = new Float32Array(MAX_P);
+
+/* 落下中の雨粒＝縦に伸びる「筋」として描画（風は考慮せず真下に落ちるため回転計算は不要） */
+const landedPos = new Float32Array(MAX_P*3);           // 着地後（流れる／溜まる）の粒だけを表示する用
+const dropGeo = new THREE.BoxGeometry(1,1,1);
+dropGeo.translate(0,-0.5,0);                           // ピボットを筋の上端に置く
+const dropMat = new THREE.MeshBasicMaterial({color:0x9fd8ff, transparent:true, opacity:0.75, depthWrite:false});
+const dropMesh = new THREE.InstancedMesh(dropGeo, dropMat, MAX_P);
+dropMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+scene.add(dropMesh);
+const _dm=new THREE.Matrix4(), _dpos=new THREE.Vector3(), _dscale=new THREE.Vector3(), _dquat=new THREE.Quaternion();
+const _HIDDEN=new THREE.Vector3(0,-9999,0), _ZERO=new THREE.Vector3(0,0,0);
+for(let k=0;k<MAX_P;k++) dropMesh.setMatrixAt(k, _dm.compose(_HIDDEN,_dquat,_ZERO));
+dropMesh.instanceMatrix.needsUpdate = true;
+
+const rainGeo = new THREE.BufferGeometry();
+rainGeo.setAttribute('position', new THREE.BufferAttribute(landedPos,3));
+const rainMat = new THREE.PointsMaterial({color:0x9fd8ff, size:0.3, transparent:true, opacity:0.8, depthWrite:false, sizeAttenuation:true});
+const rainPoints = new THREE.Points(rainGeo, rainMat);
+scene.add(rainPoints);
+let spawnAcc = 0;
+const rainParams = { rainRate:30 };           // 降水強度（mm/h、気象庁の「雨の強さ」表現に準拠）
+const RAIN_VISUAL_SCALE = 10;                 // mm/h → 雨粒スポーン数/秒 への換算（見た目の密度調整用）
+function rainCategory(mmh){
+  if(mmh<=0) return '降雨なし';
+  if(mmh<1)  return '小雨';
+  if(mmh<3)  return '弱い雨';
+  if(mmh<10) return 'やや強い雨';
+  if(mmh<20) return '強い雨（どしゃ降り）';
+  if(mmh<30) return '激しい雨';
+  if(mmh<50) return '非常に激しい雨';
+  if(mmh<80) return '猛烈な雨';
+  return '猛烈な雨（記録的短時間大雨）';
+}
+
+function resetSimulation(){
+  for(let k=0;k<MAX_P;k++){
+    pState[k]=0; pPos[k*3+1]=-9999; landedPos[k*3+1]=-9999;
+    dropMesh.setMatrixAt(k, _dm.compose(_HIDDEN,_dquat,_ZERO));
+  }
+  dropMesh.instanceMatrix.needsUpdate = true;
+  spawnAcc = 0;
+  rainGeo.attributes.position.needsUpdate = true;
+  pointWet.fill(0);
+}
+function spawnParticle(){
+  for(let k=0;k<MAX_P;k++){
+    if(pState[k]===0){
+      const x=minX+Math.random()*(maxX-minX), z=minZ+Math.random()*(maxZ-minZ);
+      pPos[k*3]=x; pPos[k*3+1]=rainTopY; pPos[k*3+2]=z;
+      pVy[k]=-3.5; pState[k]=1; pSettle[k]=0;    // 最初から一定の速さで落下（ふわふわ漂って見えないように）
+      return;
+    }
+  }
+}
+const EPS=0.6, FLOW_SPEED=3.2, SLOPE_MIN=0.002, SETTLE_TIME=1.6;
+function stepSim(dt){
+  spawnAcc += rainParams.rainRate*RAIN_VISUAL_SCALE*dt;
+  while(spawnAcc>=1){ spawnParticle(); spawnAcc-=1; }
+  // 降水強度が上がるほど、筋を太く・長く・濃く（強い雨ほど視覚的にはっきり伝わるように）
+  const T = Math.min(rainParams.rainRate/80, 1);
+  const dropW = 0.05 + 0.075*T, dropLen0 = 0.7, dropLen1 = 1.8 + 1.2*T;
+  dropMat.opacity = 0.55 + 0.35*T;
+  for(let k=0;k<MAX_P;k++){
+    if(pState[k]===0) continue;
+    let x=pPos[k*3], y=pPos[k*3+1], z=pPos[k*3+2];
+    if(pState[k]===1){
+      pVy[k]-=9.8*dt; y+=pVy[k]*dt;
+      const gy = sampleY(x,z);
+      if(y<=gy){ y=gy; pState[k]=2; pVy[k]=0; }
+    } else if(pState[k]===2){
+      const h0=sampleY(x-EPS,z), h1=sampleY(x+EPS,z), h2=sampleY(x,z-EPS), h3=sampleY(x,z+EPS);
+      let gx=-(h1-h0)/(2*EPS), gz=-(h3-h2)/(2*EPS);
+      const mag=Math.hypot(gx,gz);
+      if(mag<SLOPE_MIN){ pState[k]=3; pSettle[k]=0; }
+      else{
+        gx/=mag; gz/=mag;
+        x += gx*FLOW_SPEED*Math.min(mag,1)*dt;
+        z += gz*FLOW_SPEED*Math.min(mag,1)*dt;
+        y = sampleY(x,z);
+        if(x<minX||x>maxX||z<minZ||z>maxZ){ pState[k]=0; y=-9999; }
+      }
+    } else if(pState[k]===3){
+      pSettle[k]+=dt;
+      y = sampleY(x,z);
+      if(pSettle[k]>SETTLE_TIME){ pState[k]=0; y=-9999; }
+    }
+    pPos[k*3]=x; pPos[k*3+1]=y; pPos[k*3+2]=z;
+    if(pState[k]===1){
+      landedPos[k*3+1] = -9999;
+      const speed = Math.max(-pVy[k], 1.2);
+      const len = Math.min(Math.max(speed*0.12, dropLen0), dropLen1);
+      _dpos.set(x,y,z); _dscale.set(dropW,len,dropW);
+      dropMesh.setMatrixAt(k, _dm.compose(_dpos,_dquat,_dscale));
+    } else if(pState[k]===0){
+      landedPos[k*3+1] = -9999;
+      dropMesh.setMatrixAt(k, _dm.compose(_HIDDEN,_dquat,_ZERO));
+    } else {
+      landedPos[k*3]=x; landedPos[k*3+1]=y; landedPos[k*3+2]=z;
+      dropMesh.setMatrixAt(k, _dm.compose(_HIDDEN,_dquat,_ZERO));
+    }
+  }
+  dropMesh.instanceMatrix.needsUpdate = true;
+  rainGeo.attributes.position.needsUpdate = true;
+  updatePointWetness(dt);
+}
+
+function updatePointWetness(dt){
+  for(let i=0;i<pointWet.length;i++) pointWet[i] = Math.max(0, pointWet[i]*(1-dt*0.6));
+  for(let k=0;k<MAX_P;k++){
+    if(pState[k]!==3) continue; // only settled (pooling) particles count toward puddling
+    const x=pPos[k*3], z=pPos[k*3+2];
+    for(let i=0;i<POINTS.length;i++){
+      const dx=x-POINTS[i].x, dz=z-POINTS[i].z;
+      const d2=dx*dx+dz*dz;
+      if(d2<4){ pointWet[i] += dt*3*(1-d2/4); }
+    }
+  }
+}
+
+/* =========================================================================
+   THEME TOGGLE（背景 黒／白）
+   ========================================================================= */
+function applyTheme(mode){
+  THEME = mode;
+  try{ localStorage.setItem('site3d-theme', mode); }catch(e){}
+  const T = TC();
+  document.documentElement.setAttribute('data-theme', mode);
+  scene.background.set(T.bg); scene.fog.color.set(T.bg);
+  const gridVis = grid.visible;
+  scene.remove(grid); grid.geometry.dispose(); grid.material.dispose();
+  grid = makeGrid(); grid.visible = gridVis; scene.add(grid);
+  groundMat.color.set(T.ground); groundMat.opacity = T.groundOp;
+  if(bLine){ bLine.material.color.set(T.bline); bLine.material.opacity = T.blineOp; }
+  if(bldMesh) bldMesh.material.color.set(T.bld);
+  if(bldEdges) bldEdges.material.color.set(T.bld);
+  baseDots.forEach(d=>{ d.material.color.set(T.dot); d.material.opacity = T.dotOp; });
+  selectionRing.material.color.set(T.sel); glowSphere.material.color.set(T.sel);
+  if(wireMesh){ wireMesh.material.color.set(T.wire); wireMesh.material.opacity = T.wireOp; }
+  refreshAllLabels();
+  document.getElementById('btnTheme').textContent = mode==='light' ? '背景を黒にする' : '背景を白にする';
+}
+document.getElementById('btnTheme').onclick = ()=> applyTheme(THEME==='light' ? 'dark' : 'light');
+document.getElementById('btnTheme').textContent = THEME==='light' ? '背景を黒にする' : '背景を白にする';
+
+/* =========================================================================
+   IMPORT / EXPORT (shared data)
+   ========================================================================= */
+function applyImport(data){
+  if(!Array.isArray(data.points) || !data.points.length) throw new Error('points 配列が必要です');
+  const newPoints = data.points.map(p=>({x:+p.x, z:+p.z, level:+p.level, label:String(p.label||''), role:p.role?String(p.role):undefined}));
+  if(newPoints.some(p=>[p.x,p.z,p.level].some(Number.isNaN))) throw new Error('x/z/level に数値以外があります');
+  POINTS = newPoints;
+  recomputeDiffs();
+  if(data.building && [data.building.x0,data.building.x1,data.building.z0,data.building.z1].every(v=>typeof v==='number')){
+    BLD = data.building;
+  }
+  boundaryIdx = computeBoundaryIdx(POINTS);
+  computeBounds();
+  rebuildBoundary();
+  rebuildBuilding();
+  rebuildMarkers();
+  buildTable();
+  buildTerrain();
+  resetSimulation();
+  resetCamera();
+}
+document.getElementById('btnImport').onclick = ()=>{
+  const raw = document.getElementById('importArea').value.trim();
+  if(!raw){ alert('JSONを貼り付けてください'); return; }
+  try{ applyImport(JSON.parse(raw)); }
+  catch(err){ alert('読み込みに失敗しました: '+err.message); }
+};
+document.getElementById('btnExportCopy').onclick = (e)=>{
+  const data = {points:POINTS.map(p=>({x:p.x,z:p.z,level:p.level,label:p.label,role:p.role})), building:BLD};
+  const json = JSON.stringify(data, null, 1);
+  document.getElementById('importArea').value = json;
+  if(navigator.clipboard) navigator.clipboard.writeText(json).catch(()=>{});
+  const orig=e.target.textContent; e.target.textContent='コピーしました'; setTimeout(()=>e.target.textContent=orig,1300);
+};
+
+/* =========================================================================
+   CAMERA (single, shared) & INPUT
+   ========================================================================= */
+let camDist = 60, camTheta = Math.PI*0.28, camPhi = Math.PI*0.32, camTarget = new THREE.Vector3(3,1,0);
+function updateCamera(){
+  const x = camTarget.x + camDist*Math.sin(camPhi)*Math.sin(camTheta);
+  const y = camTarget.y + camDist*Math.cos(camPhi);
+  const z = camTarget.z + camDist*Math.sin(camPhi)*Math.cos(camTheta);
+  camera.position.set(x,y,z);
+  camera.lookAt(camTarget);
+}
+function resetCamera(){
+  const cx=(minX+maxX)/2, cz=(minZ+maxZ)/2;
+  camTarget.set(cx, 1, cz);
+  camDist = Math.max(maxX-minX, maxZ-minZ)*0.75;
+  camTheta = Math.PI*0.28; camPhi = Math.PI*0.32;
+  updateCamera();
+}
+
+/* --- タッチ／マウス操作（3D画面のみ）---------------------------------------
+   1本指ドラッグ＝回転（拡大後も常に可能）／2本指ピンチ＝拡大縮小／2本指ドラッグ＝平行移動
+   マウス：左ドラッグ＝回転、右ドラッグ＝平行移動、ホイール＝拡大縮小
+   ページ全体のピンチ拡大は無効化し、設定パネルは固定のままにする */
+const CAM_MIN = 5, CAM_MAX = 220;
+const cv = renderer.domElement;
+const ptrs = new Map();               // pointerId -> {x,y}
+let panning=false, multiTouch=false, lastX=0, lastY=0, pinchDist=0, pinchMX=0, pinchMY=0;
+function pinchInfo(){
+  const a=[...ptrs.values()];
+  return {d:Math.hypot(a[0].x-a[1].x, a[0].y-a[1].y), mx:(a[0].x+a[1].x)/2, my:(a[0].y+a[1].y)/2};
+}
+function panBy(dx,dy){
+  const panSpeed = camDist*0.0012;
+  camera.updateMatrix();
+  const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix,0);
+  camTarget.addScaledVector(right, -dx*panSpeed);
+  camTarget.addScaledVector(new THREE.Vector3(0,1,0), dy*panSpeed);
+}
+cv.addEventListener('pointerdown', e=>{
+  if(ptrs.size===0) multiTouch=false;
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+  panning = (e.pointerType==='mouse' && e.button===2);
+  lastX=e.clientX; lastY=e.clientY;
+  if(ptrs.size===2){ multiTouch=true; const i=pinchInfo(); pinchDist=i.d; pinchMX=i.mx; pinchMY=i.my; }
+});
+function endPointer(e){
+  if(!ptrs.delete(e.pointerId)) return;
+  if(ptrs.size===1){ const p=[...ptrs.values()][0]; lastX=p.x; lastY=p.y; }   // 指を1本離しても回転が飛ばない
+  if(ptrs.size===0) panning=false;
+}
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
+cv.addEventListener('lostpointercapture', endPointer);
+cv.addEventListener('contextmenu', e=>e.preventDefault());
+cv.addEventListener('pointermove', e=>{
+  const p = ptrs.get(e.pointerId); if(!p) return;
+  const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
+  if(ptrs.size>=2){
+    const i=pinchInfo();
+    if(pinchDist>0 && i.d>0) camDist = Math.min(Math.max(camDist*(pinchDist/i.d), CAM_MIN), CAM_MAX);
+    panBy(i.mx-pinchMX, i.my-pinchMY);
+    pinchDist=i.d; pinchMX=i.mx; pinchMY=i.my;
+    updateCamera();
+  } else if(panning){
+    panBy(dx,dy); updateCamera();
+  } else {
+    camTheta -= dx*0.006;
+    camPhi = Math.min(Math.max(camPhi - dy*0.006, 0.06), Math.PI-0.06);
+    updateCamera();
+  }
+  lastX=e.clientX; lastY=e.clientY;
+});
+cv.addEventListener('wheel', e=>{
+  e.preventDefault();
+  camDist = Math.min(Math.max(camDist * (1+e.deltaY*0.0012), CAM_MIN), CAM_MAX);
+  updateCamera();
+}, {passive:false});
+// iPad(Safari)でのページ全体のピンチ拡大・ダブルタップ拡大を無効化
+['gesturestart','gesturechange','gestureend'].forEach(t=>document.addEventListener(t, e=>e.preventDefault(), {passive:false}));
+document.addEventListener('touchmove', e=>{ if(e.touches.length>1 || (e.scale && e.scale!==1)) e.preventDefault(); }, {passive:false});
+document.getElementById('levelBtnReset').onclick = resetCamera;
+
+// tooltip + click-select (only meaningful when level layer visible)
+const tooltip = document.getElementById('tooltip');
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+renderer.domElement.addEventListener('pointermove', e=>{
+  if(!showLevel){ tooltip.style.display='none'; return; }
+  mouse.x = (e.clientX/window.innerWidth)*2-1;
+  mouse.y = -(e.clientY/window.innerHeight)*2+1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(spheres);
+  if(hits.length){
+    const idx = spheres.indexOf(hits[0].object);
+    const p = POINTS[idx];
+    const sign = p.diff>0?'+':'';
+    tooltip.style.display='block';
+    tooltip.style.left = (e.clientX+14)+'px';
+    tooltip.style.top = (e.clientY+10)+'px';
+    tooltip.innerHTML = `<b>${p.label}</b><br>計画GL: ${p.level.toFixed(2)} m ／ 基準差: ${sign}${Math.round(p.diff*1000)} mm`;
+  } else {
+    tooltip.style.display='none';
+  }
+});
+let downX=0, downY=0;
+renderer.domElement.addEventListener('pointerdown', e=>{ downX=e.clientX; downY=e.clientY; });
+renderer.domElement.addEventListener('pointerup', e=>{
+  if(!showLevel || multiTouch) return;
+  if(Math.hypot(e.clientX-downX, e.clientY-downY) > 5) return;
+  mouse.x = (e.clientX/window.innerWidth)*2-1;
+  mouse.y = -(e.clientY/window.innerHeight)*2+1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(spheres);
+  if(hits.length) selectPoint(spheres.indexOf(hits[0].object));
+});
+
+/* =========================================================================
+   LAYER TOGGLES
+   ========================================================================= */
+let showLevel = true, showRain = false;
+function applyLayerVisibility(){
+  grid.visible = showLevel;
+  groundMesh.visible = showLevel;
+  bLine.visible = showLevel;
+  markerGroup.visible = showLevel;
+  document.getElementById('legend').style.display = showLevel ? 'flex':'none';
+  document.getElementById('levelPanel').style.display = showLevel ? 'block':'none';
+  if(!showLevel){ labelEls.forEach(({el})=>el.style.display='none'); tooltip.style.display='none'; }
+
+  if(terrainMesh) terrainMesh.visible = showRain;
+  if(wireMesh) wireMesh.visible = showRain;
+  rainPoints.visible = showRain;
+  dropMesh.visible = showRain;
+  if(puddleGroup) puddleGroup.visible = showRain;
+  document.getElementById('rainPanel').style.display = showRain ? 'block':'none';
+}
+document.getElementById('btnShowLevel').onclick = (e)=>{
+  showLevel = !showLevel;
+  e.target.classList.toggle('active', showLevel);
+  applyLayerVisibility();
+};
+document.getElementById('btnShowRain').onclick = (e)=>{
+  showRain = !showRain;
+  e.target.classList.toggle('active', showRain);
+  applyLayerVisibility();
+};
+
+let showLabels = true;
+document.getElementById('levelBtnLabels').onclick = (e)=>{
+  showLabels = !showLabels;
+  e.target.classList.toggle('active', showLabels);
+};
+
+const exagInput = document.getElementById('levelExag');
+const exagVal = document.getElementById('levelExagVal');
+exagInput.addEventListener('input', ()=>{
+  EXAG = parseFloat(exagInput.value);
+  exagVal.textContent = EXAG + 'x';
+  layoutMarkers();
+  rescaleTerrain();
+});
+
+const rainRateInput = document.getElementById('rainRate');
+rainRateInput.addEventListener('input', e=>{
+  rainParams.rainRate = +e.target.value;
+  document.getElementById('rainRateVal').textContent = rainParams.rainRate;
+  document.getElementById('rainRateCat').textContent = rainCategory(rainParams.rainRate);
+});
+document.getElementById('rainRateCat').textContent = rainCategory(rainParams.rainRate);
+const rainOpacityInput = document.getElementById('rainOpacity');
+rainOpacityInput.addEventListener('input', e=>{
+  rainOpacity = (+e.target.value)/100;
+  document.getElementById('rainOpacityVal').textContent = e.target.value + '%';
+  if(terrainMesh) terrainMesh.material.opacity = rainOpacity;
+});
+document.getElementById('rainBtnReset').addEventListener('click', resetSimulation);
+
+/* =========================================================================
+   INITIAL BUILD
+   ========================================================================= */
+rebuildBoundary();
+rebuildBuilding();
+rebuildMarkers();
+buildTable();
+buildTerrain();
+applyLayerVisibility();
+resetCamera();
+
+/* =========================================================================
+   RENDER LOOP
+   ========================================================================= */
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if(showLevel){
+    spheres.forEach(s=>{ s.material.emissiveIntensity = 0.25; s.scale.setScalar(1); });
+    if(selectedIdx !== null){
+      const p = POINTS[selectedIdx];
+      const y = p.diff * (EXAG/10);
+      const t = performance.now()*0.005;
+      const pulse = (Math.sin(t)+1)/2;
+      const sph = spheres[selectedIdx];
+      sph.material.emissiveIntensity = 0.4 + pulse*0.8;
+      sph.scale.setScalar(1 + pulse*0.55);
+      selectionRing.visible = true;
+      selectionRing.position.set(p.x, 0.03, p.z);
+      selectionRing.scale.setScalar(1 + pulse*1.4);
+      selectionRing.material.opacity = 0.85*(1-pulse) + 0.15;
+      glowSphere.visible = true;
+      glowSphere.position.set(p.x, y, p.z);
+      glowSphere.scale.setScalar(1 + pulse*0.9);
+      glowSphere.material.opacity = 0.45*(1-pulse) + 0.05;
+    } else {
+      selectionRing.visible = false;
+      glowSphere.visible = false;
+    }
+    labelEls.forEach(({el},i)=>{
+      el.style.outline = (i===selectedIdx) ? '2px solid #fff' : 'none';
+      el.style.zIndex = (i===selectedIdx) ? '2' : '1';
+    });
+    const v = new THREE.Vector3();
+    labelEls.forEach(({el,p})=>{
+      v.set(p.x, p.diff*(EXAG/10), p.z);
+      v.project(camera);
+      if(v.z>1){ el.style.display='none'; return; }
+      el.style.display = showLabels ? 'block':'none';
+      el.style.left = ((v.x*0.5+0.5)*window.innerWidth)+'px';
+      el.style.top = ((-v.y*0.5+0.5)*window.innerHeight)+'px';
+    });
+  }
+
+  if(showRain){
+    stepSim(dt);
+    puddleRings.forEach((ring,i)=>{
+      const w = Math.min(pointWet[i]/WET_SAT, 1);
+      ring.material.opacity = 0.7*w;
+      const s = 0.5 + w*1.3;
+      ring.scale.set(s,s,s);
+    });
+    rowRefs.forEach(r=>{
+      if(r.wetFill) r.wetFill.style.width = (Math.min(pointWet[r.idx]/WET_SAT,1)*100)+'%';
+    });
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
